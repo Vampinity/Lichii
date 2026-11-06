@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cstdlib>
 #include <deque>
 #include <map>
 #include <optional>
@@ -1092,6 +1093,17 @@ void CollectPointerSlots(const IR::Value& offset, small_vector<std::pair<u32, u3
     }
 }
 
+/// EDEN_NX2_NATIVE_TABLES=0: no pointers read through memory a constant buffer pointer points to
+/// (indirect_offset), neither table entries nor single ones: those accesses go to the other
+/// searches. On by default.
+bool NativeTablesEnabled() {
+    static const bool enabled = [] {
+        const char* const value = std::getenv("EDEN_NX2_NATIVE_TABLES");
+        return value == nullptr || value[0] != '0';
+    }();
+    return enabled;
+}
+
 /// Native programs: every constant buffer pointer the low address can come from, following only
 /// additions, selects and phis. A predicated address assignment becomes a phi whose other input
 /// can point into a different buffer, so the search does not stop at the first pointer. A pointer
@@ -1201,7 +1213,8 @@ small_vector<StorageBufferAddr, 4> NativePointerCandidates(const IR::U32& low_ad
             // table per object type: every slot whose table entry is a pointer). Those are table
             // candidates, bound only in the bindings the other storage buffers leave free.
             const auto add = [&](const StorageBufferAddr& pointer, bool table) {
-                if (std::ranges::find(candidates, pointer) != candidates.end()) {
+                if (!NativeTablesEnabled() ||
+                    std::ranges::find(candidates, pointer) != candidates.end()) {
                     return;
                 }
                 if (table && env.ShaderStage() != Stage::Compute) {
